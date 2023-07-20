@@ -1,0 +1,74 @@
+############################
+## Chargement des données ##
+############################
+
+library(phyloseq)
+#metadata must have sample IDs as rownames, format dataframe
+metadata <- read.csv2(file = "metadata.tsv", header = TRUE, sep = "\t")
+
+metadata <- metadata[-(113:117),]
+
+metadata <- metadata %>%
+  tibble::column_to_rownames("SampleID")
+
+metadata <- metadata %>%
+  mutate(Pollution_level = case_when(
+    Bac %in% c("B", "I", "D") ~ "Non pollué",
+    Bac %in% c("A", "H", "C") ~ "Pollué",
+    Bac %in% c("G", "E", "F") ~ "Très pollué"
+  ))
+
+metadata <- metadata %>%
+  mutate(Concentration = case_when(
+    startsWith(Bac, "A") ~ "0.0225",
+    startsWith(Bac, "B") ~ "0",
+    startsWith(Bac, "C") ~ "0.2025",
+    startsWith(Bac, "D") ~ "0.0075",
+    startsWith(Bac, "E") ~ "1.8225",
+    startsWith(Bac, "F") ~ "5.4675",
+    startsWith(Bac, "G") ~ "0.6075",
+    startsWith(Bac, "H") ~ "0.0675",
+    startsWith(Bac, "I") ~ "0.0025"
+  ))
+metadata$Concentration <- as.numeric(metadata$Concentration)
+
+metadata <- metadata %>%
+  mutate(Run = "1")
+metadata <- metadata %>%
+  mutate(Experiment = case_when(
+    startsWith(Temps, "T") ~ "Sample",
+    .default = "NTC"
+  ))
+
+
+#ASV table must have ASV names as rownames, format matrix
+ASV_table <- read_qza("04_dbotu_table.qza")
+ASV_table <- ASV_table[["data"]]
+for ( col in 1:ncol(ASV_table)){
+    colnames(ASV_table)[col] <-  sub("_R1", "", colnames(ASV_table)[col])
+}
+ASV_table <- as.matrix(ASV_table)
+
+#TAX table must have same ASV names as ASV table, as rownames, format matrix (here done when constructing phyloseq object)
+TAX_table <- read_qza("05_taxonomy.qza")
+TAX_table <- TAX_table[["data"]]
+TAX_table <- TAX_table %>% 
+    tibble::column_to_rownames("Feature.ID")
+library(tidyr)
+TAX_table <- separate(data = TAX_table, col = Taxon, into = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus","Species"), sep = ";")
+TAX_table <- TAX_table[,-8]
+
+#TREE do be tree
+TREE <- read_qza("06_rooted_tree.qza")
+TREE <- TREE[["data"]]
+
+######################################
+## Construction de l'objet phyloseq ##
+######################################
+
+ps <- phyloseq(otu_table(ASV_table, taxa_are_rows=TRUE), 
+                sample_data(metadata),
+               tax_table(as.matrix(TAX_table)))
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+sample_sums(ps)
